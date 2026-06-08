@@ -1,10 +1,23 @@
 package com.duyvo.pe26.tttbasic;
 
-/**
- * Hello world!
- */
 public class App {
+
+    static final String INVALID_STARTUP_ARGUMENT_MESSAGE = "Please, input a valid option [1-2]";
+
     public static void main(String[] args) {
-        System.out.println("Hello World!");
+        if (!hasValidStartupArguments(args)) {
+            System.out.println(INVALID_STARTUP_ARGUMENT_MESSAGE);
+            return;
+        }
+
+        int firstPlayer = Integer.parseInt(args[0]);
+        Game game = new Game(firstPlayer);
+        game.start();
+    }
+
+    static boolean hasValidStartupArguments(String[] args) {
+        return args != null
+                && args.length == 1
+                && ("1".equals(args[0]) || "2".equals(args[0]));
     }
 }
