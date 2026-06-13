@@ -46,9 +46,7 @@ public class Game {
         while (true) {
             printTurnMessage();
 
-            boolean shouldContinue = currentPlayer == Board.HUMAN_PLAYER
-                    ? playHumanTurn()
-                    : playComputerTurn();
+            boolean shouldContinue = (currentPlayer == Board.HUMAN_PLAYER) ? playHumanTurn() : playComputerTurn();
 
             if (!shouldContinue) {
                 return;
