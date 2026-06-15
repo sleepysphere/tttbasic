@@ -1,4 +1,4 @@
-package com.duyvo.pe26.tttbasic.Week8;
+package com.duyvo.pe26.tttbasic.Week08;
 
 import java.io.BufferedReader;
 import java.io.IOException;
