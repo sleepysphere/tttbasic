@@ -1,4 +1,4 @@
-package com.duyvo.pe26.tttbasic.Week08;
+package com.duyvo.pe26.tttbasic.Week09.MultThread;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
@@ -9,12 +9,12 @@ import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 
 /**
- * Week 08
- * Function explanation: Display server output and send one human move whenever the game requests it.
+ * Week 09 - Exercise 9.01
+ * Function explanation: Connect to the multithreaded server and play one game.
  * Function/class call to: Socket, BufferedReader, BufferedWriter.
- * Function/class reference from: A user starts this class to connect to Week08.Server.
- * Difference from previous week: Replaces local terminal input/output with a TCP connection.
- * What to check for when debugging: The client sends input only after receiving "Player#1's turn".
+ * Function/class reference from: A user starts this class; Server supplies the game stream.
+ * Difference from previous week: The client behavior is intentionally almost identical to Week08.Client.
+ * What to check for when debugging: The client waits for the exact human-turn prompt before sending input.
  */
 public class Client {
 
@@ -23,24 +23,23 @@ public class Client {
     private static final String HUMAN_TURN_MESSAGE = "Player#1's turn";
 
     /**
-     * Function explanation: Connect to the server and run a single-threaded request-response loop.
-     * Function/class call to: runClient.
+     * Function explanation: Resolve connection arguments and start the client loop.
+     * Function/class call to: runClient and parsePort.
      * Function/class reference from: The JVM calls this method.
-     * Difference from previous week: No reader thread is used.
-     * What to check for when debugging: Host and port must match the server.
+     * Difference from previous week: Only the package name changes.
+     * What to check for when debugging: Use Client [host] [port].
      */
     public static void main(String[] args) {
         String host = args != null && args.length >= 1 ? args[0] : DEFAULT_HOST;
-        int port = parsePort(args);
-        runClient(host, port);
+        runClient(host, parsePort(args));
     }
 
     /**
-     * Function explanation: Read complete lines from the server and answer only human-turn prompts.
-     * Function/class call to: Socket input/output streams and System.in.
+     * Function explanation: Relay terminal input and output without creating client-side threads.
+     * Function/class call to: Socket streams and System.in.
      * Function/class reference from: main.
-     * Difference from previous week: Uses the existing Game text as a lightweight protocol.
-     * What to check for when debugging: A changed prompt in Game.java would require updating HUMAN_TURN_MESSAGE.
+     * Difference from previous week: Multiple copies of this client may now play concurrently.
+     * What to check for when debugging: If no prompt appears, verify that the selected server mode accepted the client.
      */
     private static void runClient(String host, int port) {
         try (
@@ -57,13 +56,9 @@ public class Client {
             String line;
             while ((line = serverInput.readLine()) != null) {
                 System.out.println(line);
-
                 if (HUMAN_TURN_MESSAGE.equals(line)) {
                     String input = keyboard.readLine();
-                    if (input == null) {
-                        input = "q";
-                    }
-                    serverOutput.write(input);
+                    serverOutput.write(input == null ? "q" : input);
                     serverOutput.newLine();
                     serverOutput.flush();
                 }
@@ -74,17 +69,16 @@ public class Client {
     }
 
     /**
-     * Function explanation: Parse the optional port from the second argument.
+     * Function explanation: Parse the optional port.
      * Function/class call to: Integer.parseInt.
      * Function/class reference from: main.
-     * Difference from previous week: Supports connecting to a non-default server port.
-     * What to check for when debugging: Use Client [host] [port].
+     * Difference from previous week: No behavioral change.
+     * What to check for when debugging: Invalid values fall back to port 5000.
      */
     private static int parsePort(String[] args) {
         if (args == null || args.length < 2) {
             return DEFAULT_PORT;
         }
-
         try {
             int port = Integer.parseInt(args[1]);
             return port >= 1 && port <= 65535 ? port : DEFAULT_PORT;

@@ -1,4 +1,4 @@
-package com.duyvo.pe26.tttbasic.Week09.SingThread;
+package com.duyvo.pe26.tttbasic.Week10;
 
 import com.duyvo.pe26.tttbasic.Board;
 import com.duyvo.pe26.tttbasic.ComputerPlayer;
@@ -17,36 +17,35 @@ import java.util.Deque;
 import java.util.Iterator;
 
 /**
- * Week 09 - Exercise 9.02
- * Function explanation: Serve many independent games with one non-blocking event-loop thread.
- * Function/class call to: Selector, ServerSocketChannel, SocketChannel, Board, ComputerPlayer.
- * Function/class reference from: Week09.SingThread.Client sends line-based MOVE requests.
- * Difference from previous week: Replaces one thread per game with Java NIO and lets the client carry the board.
- * What to check for when debugging: No operation may block inside the selector loop.
+ * Week 10
+ * Function explanation: Run many games in one event loop while keeping an authoritative board per connection.
+ * Function/class call to: Selector, SocketChannel, Board, ComputerPlayer, Move.
+ * Function/class reference from: Week10.Client returns the board it most recently received.
+ * Difference from previous week: The server no longer trusts the client's board and compares it with server state.
+ * What to check for when debugging: A modified client board must produce TAMPER_DETECTED.
  */
 public class Server {
 
     private static final int DEFAULT_PORT = 5000;
     private static final int MAX_LINE_LENGTH = 4096;
-    private static final String EMPTY_BOARD = "000000000";
 
     /**
-     * Function explanation: Parse the optional port and start the event loop.
+     * Function explanation: Start the server on an optional port.
      * Function/class call to: parsePort and start.
-     * Function/class reference from: The JVM calls this method.
-     * Difference from previous week: Starts one selector instead of worker threads.
-     * What to check for when debugging: The server process should have no application-created game threads.
+     * Function/class reference from: The JVM.
+     * Difference from previous week: Package changes to Week10; command syntax remains stable.
+     * What to check for when debugging: Use Server [port].
      */
     public static void main(String[] args) {
         new Server().start(parsePort(args));
     }
 
     /**
-     * Function explanation: Accept, read, process, and write all clients from one thread.
+     * Function explanation: Process all network readiness events on one application thread.
      * Function/class call to: acceptClient, readClient, and writeClient.
      * Function/class reference from: main.
-     * Difference from previous week: Slow human input on one client does not block other clients.
-     * What to check for when debugging: Selection keys must be removed from selectedKeys after handling.
+     * Difference from previous week: Each key attachment now includes an authoritative Board.
+     * What to check for when debugging: No blocking read or write belongs inside this loop.
      */
     public void start(int port) {
         try (Selector selector = Selector.open();
@@ -55,17 +54,14 @@ public class Server {
             serverChannel.configureBlocking(false);
             serverChannel.bind(new InetSocketAddress(port));
             serverChannel.register(selector, SelectionKey.OP_ACCEPT);
-
-            System.out.println("Week09 single-threaded NIO server listening on port " + port);
+            System.out.println("Week10 secure single-threaded server listening on port " + port);
 
             while (true) {
                 selector.select();
                 Iterator<SelectionKey> iterator = selector.selectedKeys().iterator();
-
                 while (iterator.hasNext()) {
                     SelectionKey key = iterator.next();
                     iterator.remove();
-
                     try {
                         if (!key.isValid()) {
                             continue;
@@ -90,36 +86,34 @@ public class Server {
     }
 
     /**
-     * Function explanation: Register a newly accepted non-blocking client and send the initial board.
-     * Function/class call to: SocketChannel.configureBlocking, register, and queueLine.
-     * Function/class reference from: start when OP_ACCEPT is ready.
-     * Difference from previous week: The connection is attached to transport buffers, not a game thread.
-     * What to check for when debugging: Initial STATE must be queued immediately after registration.
+     * Function explanation: Register a client with a new authoritative empty board.
+     * Function/class call to: ClientState and queueLine.
+     * Function/class reference from: start on OP_ACCEPT.
+     * Difference from previous week: Game state is now retained by the server for this connection.
+     * What to check for when debugging: Every accepted socket must get a separate ClientState instance.
      */
     private void acceptClient(Selector selector, ServerSocketChannel serverChannel) throws IOException {
         SocketChannel channel = serverChannel.accept();
         if (channel == null) {
             return;
         }
-
         channel.configureBlocking(false);
         ClientState state = new ClientState();
         SelectionKey key = channel.register(selector, SelectionKey.OP_READ, state);
-        queueLine(key, "STATE " + EMPTY_BOARD + " YOUR_MOVE");
+        queueLine(key, "STATE " + encodeBoard(state.board) + " YOUR_MOVE");
     }
 
     /**
-     * Function explanation: Collect bytes without blocking and process each complete input line.
+     * Function explanation: Assemble complete request lines from non-blocking TCP reads.
      * Function/class call to: processLine and closeKey.
-     * Function/class reference from: start when OP_READ is ready.
-     * Difference from previous week: Partial TCP messages are retained in ClientState.
-     * What to check for when debugging: Lines longer than MAX_LINE_LENGTH close the connection.
+     * Function/class reference from: start on OP_READ.
+     * Difference from previous week: Transport behavior is intentionally unchanged.
+     * What to check for when debugging: Preserve partial lines between readiness events.
      */
     private void readClient(SelectionKey key) throws IOException {
         SocketChannel channel = (SocketChannel) key.channel();
         ClientState state = (ClientState) key.attachment();
         int bytesRead = channel.read(state.readBuffer);
-
         if (bytesRead == -1) {
             closeKey(key);
             return;
@@ -128,7 +122,6 @@ public class Server {
         state.readBuffer.flip();
         while (state.readBuffer.hasRemaining()) {
             char character = (char) (state.readBuffer.get() & 0xff);
-
             if (character == '\n') {
                 String line = state.incoming.toString();
                 state.incoming.setLength(0);
@@ -145,16 +138,15 @@ public class Server {
     }
 
     /**
-     * Function explanation: Write queued response buffers without blocking.
+     * Function explanation: Flush queued response bytes without blocking other clients.
      * Function/class call to: SocketChannel.write.
-     * Function/class reference from: start when OP_WRITE is ready.
-     * Difference from previous week: A slow receiver cannot block the event loop indefinitely.
-     * What to check for when debugging: Remove OP_WRITE after the queue becomes empty.
+     * Function/class reference from: start on OP_WRITE.
+     * Difference from previous week: No functional change.
+     * What to check for when debugging: Disable OP_WRITE when the queue becomes empty.
      */
     private void writeClient(SelectionKey key) throws IOException {
         SocketChannel channel = (SocketChannel) key.channel();
         ClientState state = (ClientState) key.attachment();
-
         while (!state.outgoing.isEmpty()) {
             ByteBuffer current = state.outgoing.peek();
             channel.write(current);
@@ -163,64 +155,63 @@ public class Server {
             }
             state.outgoing.remove();
         }
-
         key.interestOps(key.interestOps() & ~SelectionKey.OP_WRITE);
     }
 
     /**
-     * Function explanation: Trust the board supplied by the client, validate the requested cell, and make the computer move.
-     * Function/class call to: decodeBoard, Board.playMove, ComputerPlayer.chooseMove, and createResponse.
-     * Function/class reference from: readClient after a complete line arrives.
-     * Difference from previous week: The server is application-stateless; this week explicitly assumes clients do not cheat.
-     * What to check for when debugging: Request format is MOVE board position.
+     * Function explanation: Compare the returned board with server state before validating and applying a move.
+     * Function/class call to: encodeBoard, Board.playMove, ComputerPlayer.chooseMove, and createEndResponse.
+     * Function/class reference from: readClient.
+     * Difference from previous week: Forged boards are rejected instead of being reconstructed and trusted.
+     * What to check for when debugging: Request format remains MOVE board position.
      */
     private void processLine(SelectionKey key, String line) {
+        ClientState state = (ClientState) key.attachment();
+        String authoritativeBoard = encodeBoard(state.board);
         String[] parts = line.trim().split("\\s+");
+
         if (parts.length != 3 || !"MOVE".equals(parts[0])) {
-            queueLine(key, "STATE " + EMPTY_BOARD + " BAD_REQUEST");
+            queueLine(key, "STATE " + authoritativeBoard + " BAD_REQUEST");
+            return;
+        }
+        if (!parts[1].matches("[012]{9}") || !parts[1].equals(authoritativeBoard)) {
+            queueLine(key, "STATE " + authoritativeBoard + " TAMPER_DETECTED");
             return;
         }
 
-        Board board = decodeBoard(parts[1]);
         Integer position = parsePosition(parts[2]);
-        if (board == null || position == null) {
-            queueLine(key, "STATE " + EMPTY_BOARD + " BAD_REQUEST");
+        if (position == null || !state.board.playMove(new Move(position), Board.HUMAN_PLAYER)) {
+            queueLine(key, "STATE " + authoritativeBoard + " INVALID_MOVE");
             return;
         }
 
-        if (!board.playMove(new Move(position), Board.HUMAN_PLAYER)) {
-            queueLine(key, "STATE " + encodeBoard(board) + " INVALID_MOVE");
-            return;
-        }
-
-        String afterHuman = createResponse(board, "HUMAN_WIN");
-        if (afterHuman != null) {
-            queueLine(key, afterHuman);
+        String end = createEndResponse(state.board);
+        if (end != null) {
+            queueLine(key, end);
             return;
         }
 
         ComputerPlayer computer = new ComputerPlayer();
-        board.playMove(computer.chooseMove(board), Board.COMPUTER_PLAYER);
-
-        String afterComputer = createResponse(board, "COMPUTER_WIN");
-        queueLine(key, afterComputer != null
-                ? afterComputer
-                : "STATE " + encodeBoard(board) + " YOUR_MOVE");
+        state.board.playMove(computer.chooseMove(state.board), Board.COMPUTER_PLAYER);
+        end = createEndResponse(state.board);
+        queueLine(key, end != null
+                ? end
+                : "STATE " + encodeBoard(state.board) + " YOUR_MOVE");
     }
 
     /**
-     * Function explanation: Return an END response when the current board is won or drawn.
+     * Function explanation: Encode a completed game or return null while play should continue.
      * Function/class call to: Board.checkWinner and Board.isDraw.
-     * Function/class reference from: processLine after each move.
-     * Difference from previous week: Encodes game completion as one protocol line.
-     * What to check for when debugging: A null result means the game should continue.
+     * Function/class reference from: processLine.
+     * Difference from previous week: Works on the authoritative server board.
+     * What to check for when debugging: Winner 1 is HUMAN_WIN and winner 2 is COMPUTER_WIN.
      */
-    private String createResponse(Board board, String expectedWinnerMessage) {
+    private String createEndResponse(Board board) {
         int winner = board.checkWinner();
-        if (winner == Board.HUMAN_PLAYER && "HUMAN_WIN".equals(expectedWinnerMessage)) {
+        if (winner == Board.HUMAN_PLAYER) {
             return "END " + encodeBoard(board) + " HUMAN_WIN";
         }
-        if (winner == Board.COMPUTER_PLAYER && "COMPUTER_WIN".equals(expectedWinnerMessage)) {
+        if (winner == Board.COMPUTER_PLAYER) {
             return "END " + encodeBoard(board) + " COMPUTER_WIN";
         }
         if (board.isDraw()) {
@@ -230,33 +221,11 @@ public class Server {
     }
 
     /**
-     * Function explanation: Reconstruct a Board from nine client-supplied digits.
-     * Function/class call to: Board.playMove and Move.
-     * Function/class reference from: processLine.
-     * Difference from previous week: Board state crosses the network in a compact form.
-     * What to check for when debugging: Only digits 0, 1, and 2 are accepted.
-     */
-    private Board decodeBoard(String encoded) {
-        if (encoded == null || !encoded.matches("[012]{9}")) {
-            return null;
-        }
-
-        Board board = new Board();
-        for (int index = 0; index < encoded.length(); index++) {
-            int player = encoded.charAt(index) - '0';
-            if (player != Board.EMPTY) {
-                board.playMove(new Move(index + 1), player);
-            }
-        }
-        return board;
-    }
-
-    /**
-     * Function explanation: Convert the board to nine digits for the protocol.
+     * Function explanation: Convert an authoritative Board to its nine-digit wire form.
      * Function/class call to: Board.getCell.
-     * Function/class reference from: processLine and createResponse.
-     * Difference from previous week: Provides a stable wire representation.
-     * What to check for when debugging: Index order is positions 1 through 9.
+     * Function/class reference from: Connection setup, validation, and responses.
+     * Difference from previous week: The same representation is retained to minimize client changes.
+     * What to check for when debugging: Row-major order must match positions 1 through 9.
      */
     private String encodeBoard(Board board) {
         StringBuilder encoded = new StringBuilder(9);
@@ -269,11 +238,11 @@ public class Server {
     }
 
     /**
-     * Function explanation: Parse positions 1 through 9.
+     * Function explanation: Parse a legal human position.
      * Function/class call to: Integer.parseInt.
      * Function/class reference from: processLine.
-     * Difference from previous week: Invalid values become protocol errors rather than exceptions.
-     * What to check for when debugging: Position zero and position ten are invalid.
+     * Difference from previous week: Same validation retained.
+     * What to check for when debugging: Only 1 through 9 are valid.
      */
     private Integer parsePosition(String value) {
         try {
@@ -285,11 +254,11 @@ public class Server {
     }
 
     /**
-     * Function explanation: Add one UTF-8 line to a client's non-blocking output queue.
+     * Function explanation: Queue one response line for non-blocking output.
      * Function/class call to: ByteBuffer.wrap and SelectionKey.interestOps.
-     * Function/class reference from: All request-processing paths.
-     * Difference from previous week: Responses are queued instead of written synchronously.
-     * What to check for when debugging: OP_WRITE must be enabled after adding a buffer.
+     * Function/class reference from: All response paths.
+     * Difference from previous week: No functional change.
+     * What to check for when debugging: Always append a newline.
      */
     private void queueLine(SelectionKey key, String line) {
         if (!key.isValid()) {
@@ -301,27 +270,27 @@ public class Server {
     }
 
     /**
-     * Function explanation: Cancel a selection key and close its channel.
+     * Function explanation: Remove a failed or disconnected channel from the selector.
      * Function/class call to: SelectionKey.cancel and channel.close.
-     * Function/class reference from: Error and disconnect paths.
-     * Difference from previous week: Centralizes cleanup for non-blocking clients.
-     * What to check for when debugging: Closed clients must not remain registered with the selector.
+     * Function/class reference from: Network error paths.
+     * Difference from previous week: Also releases the connection's authoritative Board.
+     * What to check for when debugging: A disconnected game must not leak its attachment.
      */
     private void closeKey(SelectionKey key) {
         try {
             key.cancel();
             key.channel().close();
         } catch (IOException ignored) {
-            // The channel is already unusable.
+            // Channel cleanup is best-effort.
         }
     }
 
     /**
-     * Function explanation: Parse the optional server port.
+     * Function explanation: Parse the optional TCP port.
      * Function/class call to: Integer.parseInt.
      * Function/class reference from: main.
-     * Difference from previous week: Keeps the same command-line convention.
-     * What to check for when debugging: Invalid input falls back to 5000.
+     * Difference from previous week: No command-line change.
+     * What to check for when debugging: Invalid values use 5000.
      */
     private static int parsePort(String[] args) {
         if (args == null || args.length == 0) {
@@ -336,14 +305,15 @@ public class Server {
     }
 
     /**
-     * Week 09 - Transport state only
-     * Function explanation: Retain partial network input and output for one socket.
-     * Function/class call to: ByteBuffer, StringBuilder, and Deque.
-     * Function/class reference from: SelectionKey attachments in this server.
-     * Difference from previous week: Does not retain authoritative game state.
-     * What to check for when debugging: Buffers belong to exactly one channel.
+     * Week 10 - Per-connection state
+     * Function explanation: Store transport buffers plus the server's authoritative board.
+     * Function/class call to: Board, ByteBuffer, StringBuilder, Deque.
+     * Function/class reference from: SelectionKey attachments.
+     * Difference from previous week: Adds Board, making Week10 secure but stateful.
+     * What to check for when debugging: Never share one ClientState between sockets.
      */
     private static final class ClientState {
+        private final Board board = new Board();
         private final ByteBuffer readBuffer = ByteBuffer.allocate(1024);
         private final StringBuilder incoming = new StringBuilder();
         private final Deque<ByteBuffer> outgoing = new ArrayDeque<>();

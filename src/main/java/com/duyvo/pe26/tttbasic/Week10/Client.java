@@ -1,4 +1,4 @@
-package com.duyvo.pe26.tttbasic.Week09.SingThread;
+package com.duyvo.pe26.tttbasic.Week10;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
@@ -9,11 +9,11 @@ import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 
 /**
- * Week 09 - Exercise 9.02
+ * Week 10
  * Function explanation: Keep the current board and exchange one request and one response at a time.
  * Function/class call to: Socket, BufferedReader, BufferedWriter.
- * Function/class reference from: Week09.SingThread.Server sends STATE and END messages.
- * Difference from previous week: Uses an explicit board protocol instead of parsing Game's printed prompts.
+ * Function/class reference from: Week10.Server sends STATE and END messages.
+ * Difference from previous week: Keeps the Week09 protocol so server-side validation is the main change.
  * What to check for when debugging: Every MOVE line must contain the latest board returned by the server.
  */
 public class Client {
@@ -25,7 +25,7 @@ public class Client {
      * Function explanation: Resolve connection arguments and start the protocol loop.
      * Function/class call to: runClient and parsePort.
      * Function/class reference from: The JVM calls this method.
-     * Difference from previous week: Connects to the NIO protocol server.
+     * Difference from previous week: Connects to the Week10 validating NIO server.
      * What to check for when debugging: Use Client [host] [port].
      */
     public static void main(String[] args) {
@@ -37,7 +37,7 @@ public class Client {
      * Function explanation: Read STATE/END responses and send MOVE board position requests.
      * Function/class call to: displayBoard and sendLine.
      * Function/class reference from: main.
-     * Difference from previous week: The client carries board state because Week09 assumes no cheating.
+     * Difference from previous week: The client carries board state while the server checks it against authoritative state.
      * What to check for when debugging: The server response must contain exactly three fields.
      */
     private static void runClient(String host, int port) {
