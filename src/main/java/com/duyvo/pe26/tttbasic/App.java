@@ -1,5 +1,8 @@
 package com.duyvo.pe26.tttbasic;
 
+import java.io.InputStream;
+import java.io.PrintStream;
+
 public class App {
 
     static final String INVALID_STARTUP_ARGUMENT_MESSAGE = "Please, input a valid option [1-2]";
